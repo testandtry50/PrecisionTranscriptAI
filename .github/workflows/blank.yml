@@ -66,23 +66,31 @@ jobs:
           set -e
           TAG=$(gh release view --repo k2-fsa/sherpa-onnx --json tagName -q .tagName)
           echo "Using sherpa-onnx $TAG"
-          mkdir -p /tmp/sherpa
+          mkdir -p /tmp/sherpa/rel
           cd /tmp/sherpa
           gh release download "$TAG" --repo k2-fsa/sherpa-onnx --pattern '*-android.tar.bz2'
-          tar xjf ./sherpa-onnx-*-android.tar.bz2
+          tar xjf ./sherpa-onnx-*-android.tar.bz2 -C /tmp/sherpa/rel
+          echo "Release archive contents:"
+          find /tmp/sherpa/rel -maxdepth 3 | head -30
           git clone --quiet --depth 1 --branch "$TAG" https://github.com/k2-fsa/sherpa-onnx src
           cd "$ROOT"
           KT=/tmp/sherpa/src/sherpa-onnx/kotlin-api
           [ -d "$KT" ] || KT=/tmp/sherpa/src/android/SherpaOnnx/app/src/main/java/com/k2fsa/sherpa/onnx
-          LIBS=$(find /tmp/sherpa -type d -path '*jniLibs/arm64-v8a' | head -1)
+          # look ONLY inside the release archive (the source checkout has empty jniLibs folders of its own)
+          LIBS=$(find /tmp/sherpa/rel -type d -name arm64-v8a | head -1)
           echo "Kotlin API from: $KT"
           echo "Native libs from: $LIBS"
+          if [ -z "$LIBS" ] || ! ls "$LIBS"/*.so > /dev/null 2>&1; then
+            echo "::error::No arm64-v8a .so files were found in the sherpa-onnx release archive"
+            exit 1
+          fi
           mkdir -p app/src/main/java/com/k2fsa/sherpa/onnx app/src/main/jniLibs/arm64-v8a
           cp "$KT"/*.kt app/src/main/java/com/k2fsa/sherpa/onnx/
           cp "$LIBS"/*.so app/src/main/jniLibs/arm64-v8a/
-          # The app uses ONNX Runtime from Maven (newer than the one sherpa was built with), so drop sherpa's duplicate.
+          # The app uses ONNX Runtime from Maven (newest), so drop sherpa's duplicate copy.
           rm -f app/src/main/jniLibs/arm64-v8a/libonnxruntime.so
           ls -la app/src/main/jniLibs/arm64-v8a
+          ls app/src/main/java/com/k2fsa/sherpa/onnx | head -40
 
       - name: Build the APK
         id: build
